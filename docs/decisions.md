@@ -39,3 +39,25 @@ _Follow-up (2026-10-01, PR #1 review): spot-checked 2023 and 2024 too — both u
 `data/raw/offseason_assignments.csv` doesn't exist yet, and when it's built (likely from a source like the WNBA Offseason Player Tracker blog post) it almost certainly won't carry ESPN `athlete_id`s. The only existing cross-source ID crosswalk in wehoop-wnba-data (`player_crosswalk`) covers 2026 only and doesn't know about Unrivaled, Athletes Unlimited, or overseas leagues at all. The join will be primarily name-based, using `player_core` (date of birth, college) to disambiguate players who share a name, and will carry its own `match_method`/`match_confidence` columns (mirroring `player_crosswalk`'s pattern) so weak or ambiguous matches are visible and reviewable rather than silently wrong.
 
 **Alternative considered:** wait for or build a dedicated ID crosswalk that spans offseason leagues before doing any matching. Rejected — no such crosswalk exists today and building one is its own project; logging match confidence lets us ship the name-based join now while keeping bad matches auditable.
+
+## 2026-10-01 — Exclude the WNBA All-Star Game from all analysis
+
+**Status:** Approved (Chloe, PR #1 review round 2, 2026-10-01).
+
+`player_box`/`team_box` tag the All-Star Game with `season_type == 2`, the same as real regular-season games, but under fictitious team rosters that aren't on any real team's schedule (`TEAM CLARK`/`TEAM COLLIER` in 2025, `TEAM SPOON`/`TEAM COOP` in 2026 — the exact names and `team_id`s change every year). Left in, it makes every All-Star look like they were traded to a team that doesn't exist, and inflates games-played/team-minutes denominators.
+
+**How:** before computing any measure that groups by player + team (games-played share, team-minutes share, usage%'s team denominator, team-change detection), drop rows where `team_display_name` matches `^TEAM ` (case-insensitive). Don't hardcode specific `team_id`s — they're reassigned each season, so the name pattern is the stable signal, not the id.
+
+**Alternative considered:** filter by `season_type` alone. Rejected — the All-Star Game carries `season_type == 2`, identical to real regular-season games, so `season_type` can't distinguish it; the team-name pattern is required.
+
+## 2026-10-01 — Usage% denominator uses `team_box.total_turnovers`
+
+**Status:** Approved (Chloe, PR #1 review round 2, 2026-10-01).
+
+`team_box` has three turnover-shaped columns: `turnovers`, `team_turnovers`, and `total_turnovers`. Verified empirically against every 2025 team-game row (624 team-game rows, both season types):
+- `team_box.turnovers` equals the sum of `player_box.turnovers` for that `(game_id, team_id)` in every single row (0 mismatches) — i.e. `turnovers` is individual-only.
+- `team_box.total_turnovers` equals `team_box.turnovers + team_box.team_turnovers` in every single row (0 mismatches) — i.e. `total_turnovers` is individual + team-charged combined. `team_turnovers` (shot-clock violations, 8-second backcourt, etc., not credited to a player) is nonzero in 403 of the 624 rows checked, so the distinction is real, not a column that's always zero.
+
+Usage% will use `team_box.total_turnovers` as the "team TOV" input, matching the Basketball-Reference usage-rate convention (team turnovers including team-charged turnovers).
+
+**Alternative considered:** `team_box.turnovers` (individual-only). Rejected — it would understate the true team turnover denominator by excluding team-charged turnovers, which are real possessions lost.

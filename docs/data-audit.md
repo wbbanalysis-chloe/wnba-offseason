@@ -13,6 +13,8 @@ _First pass 2026-10-01. Updated 2026-10-01 after PR #1 review (per-40 correction
 - **Boolean columns are serialized inconsistently across season CSVs**: `TRUE`/`FALSE` (2023, 2024, 2025) vs. `true`/`false` (2026 only). Parquet avoids this because booleans are typed — recommend reading parquet, not CSV, in the pipeline.
 - **`season_type` separates regular season (2) from postseason (3) cleanly for game dates — but the All-Star Game is also tagged `season_type == 2`**, under fictitious team rosters (`TEAM CLARK` / `TEAM COLLIER` in 2025, `TEAM SPOON` / `TEAM COOP` in 2026) with their own `team_id`s. This will corrupt games-played counts, team-minute shares, and team-change detection if those All-Star rows aren't filtered out first — see §6 and the new open item below. This is new since the first pass; it surfaced while checking whether "share of team minutes" and "team change" are supported.
 - **Players are identified by stable ESPN `athlete_id`s** that persist across seasons and don't collide within a season. Real in-season trades exist and are distinguishable from the All-Star artifact (confirmed with a concrete example, §6). There's a `player_crosswalk` dataset for cross-source ID matching, but it's **only built for 2026** and doesn't cover Unrivaled or Athletes Unlimited at all — matching our hand-built offseason CSV to `athlete_id` will be name-based, with `player_core` as a disambiguator.
+- **The Commissioner's Cup Championship Game is tagged `season_type == 2` (same as regular season), uses real teams/rosters, and is a genuine extra 45th game for the two finalists** (confirmed for both 2025 and 2026) — different from the All-Star artifact, and not something I'm deciding unilaterally whether to include or exclude. See §7.
+- **New, bigger than the 2022 gap: `player_season_stats` appears to hold career totals, not season totals, for most veteran players** — 62% of 2025's 170 players show a `gamesPlayed` value physically impossible for one season (up to 537). This undermines the already-approved plan to use `player_season_stats` as a cross-check. See §8.
 
 ---
 
@@ -112,19 +114,57 @@ Grouping naively by `athlete_id` + `team_id` within `season_type == 2` therefore
 
 ---
 
+## 7. Commissioner's Cup: how it's tagged, and whether its championship game counts toward regular-season totals — reporting back, not deciding
+
+Checked the `schedules` dataset's `notes_headline` field (ESPN's own event-note text) for both 2025 and 2026, then cross-referenced the flagged games against `player_box`.
+
+**Group-play Commissioner's Cup games** (`notes_headline == "WNBA Commissioner's Cup"`, 36 games in 2025, 37 in 2026) are **ordinary regular-season games** — real opponents, normal rosters, `season_type == 2`, and they're part of each team's normal 44-game slate (confirmed: a non-finalist team's full-season game count is unaffected by them). Nothing special needed here; they're indistinguishable from any other regular-season game once you've counted them, which is correct since they *are* regular-season games that happen to also count toward Commissioner's Cup group standings.
+
+**The Commissioner's Cup Championship Game is a different story.** Found it by its own `notes_headline` value (`"WNBA Commissioner's Cup Championship"`) — one game per year: `game_id 401736430` (Lynx 59 – Fever 74, 2025-07-01) and `game_id 401857321` (Liberty 93 – Aces 85, 2026-06-30). Checked whether it's inside or outside each finalist's normal 44-game slate by comparing distinct `season_type == 2` game counts:
+
+| Team | Season | Distinct `season_type==2` games | Includes championship game? |
+|---|---|---:|---|
+| Minnesota Lynx (2025 finalist) | 2025 | **45** | Yes |
+| Indiana Fever (2025 finalist) | 2025 | **45** | Yes |
+| Seattle Storm (2025 non-finalist) | 2025 | 44 | — |
+| New York Liberty (2026 finalist) | 2026 | **45** | Yes |
+| Las Vegas Aces (2026 finalist) | 2026 | **45** | Yes |
+| Seattle Storm (2026 non-finalist) | 2026 | 44 | — |
+| Toronto Tempo (2026 non-finalist) | 2026 | 44 | — |
+
+So: **the Championship Game is tagged `season_type == 2`, identical to a real regular-season game, uses real teams and real rosters (unlike the All-Star Game, no fake `team_id`), and its stats are fully included in `player_box`/`team_box` as an extra, 45th game — only for the two finalists.** It is not inside the normal 44; it's additive. Confirmed consistently for both the 2025 and 2026 finalists.
+
+**What this means for the analysis, and why I'm not deciding it myself:** if the pipeline just filters on `season_type == 2`, the two Commissioner's Cup finalists get one extra real, fully-counted game that no other team gets that year. That's a genuine competitive game (not a filtering artifact like the All-Star Game), so there's a real tradeoff:
+- **Include it** (do nothing) — keeps every point/rebound/assist a player actually produced, but gives finalists' players a 45-game sample in a season everyone else gets 44, which skews raw totals, games-played share, and team-minutes share slightly in the finalists' favor, and makes before/after offseason comparisons slightly asymmetric for anyone who reaches a championship in one year and not the other.
+- **Exclude it** — keeps every player's season directly comparable game-for-game, at the cost of dropping real production from two teams' players.
+
+Unlike the All-Star Game, there's no team-name pattern inside `player_box`/`team_box` to filter on — the championship game has to be identified by `game_id`, joined from the `schedules` dataset's `notes_headline` field (the two `game_id`s above, and this will need to be re-looked-up each new season since the game changes every year). Flagging this for your call rather than picking one.
+
+## 8. Critical new finding: `player_season_stats` contains career totals for most veteran players, not season totals
+
+Found this while sanity-checking the Commissioner's Cup games-played counts against `player_season_stats`, and it's bigger than the original 2022-gap finding — **it affects whether `player_season_stats` is usable at all, even as a cross-check.**
+
+Checked Napheesa Collier's row in `player_season_stats_2025.csv`: `gamesPlayed = 193`, `totals.points = 3542`. No WNBA player has played 193 games in a single season — that's close to her actual **career** game count (she entered the league in 2019). `avgPoints` (18.4) × `gamesPlayed` (193) ≈ `totals.points` (3542), so the whole row is internally consistent — just consistently a **career** total, not a 2025 season total, despite living in the file named `player_season_stats_2025.csv` and being keyed `season == 2025`.
+
+Checked how widespread this is: of the 170 players with a `gamesPlayed` row in `player_season_stats_2025.csv`, **105 (62%) show `gamesPlayed` above 45** — physically impossible for a single WNBA season, so very likely career totals mislabeled as season totals. The max is 537 (DeWanna Bonner, a long-tenured veteran — consistent with a career count). Players with low career-game counts (rookies, players who just returned from injury) would show a "plausible" single-season-sized number even if it's actually their career total, so this likely isn't limited to the 105 I can prove — it's just the 105 I can *prove* with this one sanity check.
+
+**This directly affects the decision already logged to use `player_season_stats` as a cross-check against our own `player_box` rollups** — for a majority of players, that cross-check would be comparing our correct single-season numbers against the source's career numbers, which would look like our pipeline is wrong when it isn't. Flagging this clearly rather than quietly dropping or keeping the cross-check — recommend confirming with a few more known players (and checking whether `player_season_stats_2026.csv`, which still has games being added, has the same issue) before deciding whether `player_season_stats` has any remaining use here at all.
+
 ## Open items
 
-**Already logged in `docs/decisions.md` and approved in PR #1 review:**
-1. Derive 2022 `player_season_stats` from `player_box` game logs rather than waiting on upstream.
-2. Build per-game/per-40 stats from `player_box`, not by pivoting `player_season_stats`.
-3. Read `.parquet`, not `.csv`, to avoid the boolean-casing inconsistency.
-4. Match offseason assignments to players by name, with a logged `match_method`/`match_confidence`, not by ID.
+**Already logged in `docs/decisions.md` and approved:**
+1. Derive 2022 `player_season_stats` from `player_box` game logs rather than waiting on upstream (PR #1 review round 1).
+2. Build per-game/per-40 stats from `player_box`, not by pivoting `player_season_stats` (round 1).
+3. Read `.parquet`, not `.csv`, to avoid the boolean-casing inconsistency (round 1).
+4. Match offseason assignments to players by name, with a logged `match_method`/`match_confidence`, not by ID (round 1).
+5. Exclude All-Star Game rows (`team_display_name` matching `^TEAM `) before computing any team-grouped measure (round 2).
+6. Usage%'s team-turnover input is `team_box.total_turnovers`, verified empirically against all 624 2025 team-game rows (round 2).
 
-**New, not yet logged as a decision — flagging for sign-off rather than picking silently:**
+**Still open, needs your call:**
 
-5. **Exclude All-Star Game rows (`team_display_name` matching `^TEAM `, or an explicit list of those `team_id`s) before computing any team-grouped measure** — games-played share, team-minutes share, usage%'s team denominator, and team-change detection all need this filter, or All-Stars will appear to have been traded to a team that isn't on their real schedule. Alternative considered: filter by `season_type` alone — rejected, since the All-Star Game carries the same `season_type == 2` as real regular-season games, so `season_type` can't distinguish it.
-6. **Which `team_box` turnover column feeds usage%'s denominator** — `turnovers`, `team_turnovers`, or `total_turnovers` are all present and mean different things (individual only, team-charged only, or both combined). Recommend `total_turnovers` (matches the standard usage-rate formula's "team turnovers" input) but this should be a confirmed choice, not a default.
-7. **Age reference point** — compute from `player_core.date_of_birth` against each season's opening day, rather than using the pre-baked `player_core.age` column, which reflects whatever moment the file was last built rather than a comparable fixed point. Alternative considered: use `age` directly — rejected, since it isn't guaranteed consistent across players or seasons (depends on build timing).
+7. **Age reference point** — compute from `player_core.date_of_birth` against each season's opening day, rather than using the pre-baked `player_core.age` column (frozen at build time, not a comparable fixed point). Not yet approved.
+8. **Commissioner's Cup Championship Game — include or exclude from analysis?** See §7. Needs a decision; I'm not picking one.
+9. **Is `player_season_stats` usable for anything, given §8's career-vs-season finding?** The already-approved plan (build from `player_box`, use `player_season_stats` only as a cross-check) may need revisiting — the cross-check itself looks unreliable for most veteran players. Needs your call before I either keep, caveat, or drop that cross-check plan.
 
 ## What I didn't do (by design, per the task)
 
