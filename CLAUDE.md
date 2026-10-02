@@ -7,12 +7,13 @@ A public portfolio project by Chloe Barroukh (GitHub: wbbanalysis-chloe).
 
 The end product is a live web app where anyone can pick a player (or a group of players) and compare their WNBA performance before and after each type of offseason, plus a written summary of findings in the README.
 
-## Who I am and how to work with me
-- I'm an analytics professional (SQL, Python, Power BI) and I build apps with AI assistance. I'm using this project to get comfortable writing and explaining code myself, because I'll be asked about it in engineering interviews.
-- **Explain as you go.** Before writing a file, tell me in plain language what it does and why. After, point out the one or two lines worth understanding.
-- **Leave some work for me.** When a task is small and a good learning moment (a component, a filter, a chart tweak), describe the approach and let me write it first, then review my code.
-- Keep changes small and reviewable. Don't refactor things I didn't ask about.
-- If a data source or assumption is uncertain, say so and write it down in `docs/decisions.md`.
+## Working agreement
+- **I own the decisions.** Metric definitions, data joins, inclusion rules, and anything that shapes the findings are mine. Propose options with tradeoffs; don't pick silently.
+- **Show your reasoning.** Before writing or changing a file, summarize what it does and why this approach. Flag anything non-obvious in the code itself.
+- **Everything goes through review.** One branch per task, small focused pull requests, and nothing merges to `main` until I've reviewed it.
+- **Stay in scope.** Don't refactor or restyle code outside the task at hand.
+- **Make assumptions visible.** If a data source, join, or method is uncertain, say so and log it in `docs/decisions.md` with the alternative considered.
+- **Verify before claiming.** Check outputs against the source data (row counts, spot checks on known players) before calling a step done.
 
 ## Stack
 - **Data pipeline:** Python 3 (pandas). Scripts live in `pipeline/`. Raw data in `data/raw/` (git-ignored if large), cleaned output as JSON/CSV in `data/clean/`.
