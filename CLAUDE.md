@@ -27,14 +27,14 @@ The end product is a live web app where anyone can pick a player (or a group of 
 - Unrivaled seasons: 2025 (inaugural) and 2026. Note every source URL so the dataset is auditable.
 
 ## Method (v1)
-- Compare per-game and per-36 stats (points, rebounds, assists, TS%, usage, minutes) in the WNBA season *before* vs. *after* each offseason.
+- Compare per-game and per-40 stats (points, rebounds, assists, TS%, usage, minutes) in the WNBA season *before* vs. *after* each offseason. Per-40 because a WNBA game is 40 minutes, not the NBA's 48.
 - Minimum minutes threshold to avoid tiny samples (decide and document in `docs/decisions.md`).
 - Show distributions and individual player deltas; don't overclaim causation — age, role changes, injuries and team changes all matter. Call that out in the app and README.
 
 ## Git workflow
 - `main` is always deployable.
 - One branch per task (`feat/pipeline-boxscores`, `feat/player-page`, `fix/...`), opened as a pull request and merged by me after review.
-- Clear commit messages in the imperative ("Add per-36 stat calculation").
+- Clear commit messages in the imperative ("Add per-40 stat calculation").
 - Before any push, confirm the active GitHub account is wbbanalysis-chloe (`gh auth status`).
 
 ## Milestones
