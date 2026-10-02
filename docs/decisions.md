@@ -61,3 +61,25 @@ _Follow-up (2026-10-01, PR #1 review): spot-checked 2023 and 2024 too — both u
 Usage% will use `team_box.total_turnovers` as the "team TOV" input, matching the Basketball-Reference usage-rate convention (team turnovers including team-charged turnovers).
 
 **Alternative considered:** `team_box.turnovers` (individual-only). Rejected — it would understate the true team turnover denominator by excluding team-charged turnovers, which are real possessions lost.
+
+## 2026-10-01 — Exclude the Commissioner's Cup Championship Game from all analysis
+
+**Status:** Approved (Chloe, PR #1 review round 3, 2026-10-01).
+
+Per the data audit (§7): the Championship Game is tagged `season_type == 2` like a real regular-season game, uses real teams/rosters (not a fake roster like the All-Star Game), and is a genuine extra 45th game for the season's two Commissioner's Cup finalists. Confirmed for both 2025 (Lynx/Fever) and 2026 (Liberty/Aces).
+
+**Verified directly against official stats, per the review request**, using Napheesa Collier (2025 Lynx, a finalist) as the test case: her `player_box` game log has 35 `season_type == 2` rows marked as played — 33 real Lynx games, plus the Commissioner's Cup Championship (`game_id 401736430`, 12 points) and her 2025 All-Star Game appearance (`game_id 401781604`, under the fictitious `TEAM CLARK` roster, 36 points). Removing *both* of those two rows and summing the remaining 33 games gives an **exact** match to her official 2025 season line on both Basketball-Reference and ESPN's stats page: 33 games, 755 total points (22.9 ppg), 7.3 rpg, 3.2 apg, 32.3 mpg, 1.6 spg, 1.5 bpg — every single stat checked matched exactly. This confirms the Commissioner's Cup Championship Game's stats (like the All-Star Game's) **do not** count toward official WNBA regular-season totals, and independently reconfirms the All-Star exclusion decision above via a different method (direct comparison to an external source rather than internal game-count arithmetic).
+
+**How:** identify the Championship Game by `game_id`, joined from the `schedules` dataset's `notes_headline == "WNBA Commissioner's Cup Championship"` field (there's no team-name pattern to filter on, unlike All-Star, since it uses real team rosters) — `game_id 401736430` for 2025, `401857321` for 2026, re-looked-up each new season. Exclude it before computing any per-game/per-40/games-played/team-minutes measure.
+
+**Alternative considered:** include it, on the grounds that it's real production from a real competitive game. Rejected — the exact match to official totals when excluding it (and the mismatch when including it) settles that the official record treats it as non-regular-season, so including it would make our numbers diverge from the standard everyone else is using.
+
+## 2026-10-01 — Reversal: drop `player_season_stats` as a cross-check
+
+**Status:** Approved (Chloe, PR #1 review round 3, 2026-10-01). **Supersedes part of** the "Build per-game and per-40 stats from `player_box`" decision above, which had proposed keeping `player_season_stats` as a cross-check against our own rollups.
+
+**Reason for the reversal:** the round-2 finding that `player_season_stats` holds career totals, not season totals, for most veteran players (62% of 2025's 170 players show a physically-impossible single-season `gamesPlayed`) means it can't serve as a reliable cross-check — for most players, "cross-checking" against it would mean comparing our correct single-season numbers against its career numbers, which would look like our pipeline is wrong when it isn't.
+
+**Replacement:** once the pipeline exists, spot-check its output against official season totals (WNBA.com or Basketball-Reference) for 5–10 players, covering a mix of roles/teams/minutes levels, as a pipeline acceptance step before trusting the output — the same method just used to verify the Commissioner's Cup exclusion above (Napheesa Collier's 2025 line matched exactly once the Championship and All-Star games were excluded). This becomes a required acceptance check for the pipeline build milestone, not an optional nicety.
+
+**Alternative considered:** keep using `player_season_stats` as a cross-check but only for players/seasons where its `gamesPlayed` looks plausible for a single season. Rejected — a "plausible-looking" career total (e.g. a rookie or a player returning from injury, where a low career game count coincidentally looks like a season total) is indistinguishable from a real season total without already knowing the answer, so this wouldn't actually be a reliable filter.
