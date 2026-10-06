@@ -16,6 +16,8 @@ SEASONS = range(2015, 2027)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = REPO_ROOT / "data" / "raw"
+# Birth dates verified by hand where player_core contradicts itself across seasons.
+DOB_OVERRIDES_PATH = Path(__file__).resolve().parent / "dob_overrides.csv"
 
 RELEASE_BASE = "https://github.com/sportsdataverse/sportsdataverse-data/releases/download"
 # file stem -> release tag. Stems are what upstream names the per-season files.
@@ -183,3 +185,35 @@ def add_team_shares(df, box):
     df["team_minutes_share"] = df["minutes"] / df["team_minutes"]
     df["team_games_share"] = df["games_played"] / df["team_games"]
     return df.drop(columns=["team_minutes", "team_games"])
+
+
+def resolve_birth_dates(core, overrides):
+    """One birth date per athlete_id, as a Series indexed by athlete_id.
+
+    player_core has one file per season and three players' dates differ between
+    files. A conflict is never settled by picking a file: it needs a verified row
+    in dob_overrides.csv, or the build stops (docs/decisions.md 2026-10-06).
+    """
+    known = core.dropna(subset=["date_of_birth"])
+    # Upstream format is "1987-08-21T07:00Z" (midnight US Pacific in UTC); the
+    # first ten characters are the calendar date.
+    dates = pd.to_datetime(known["date_of_birth"].str[:10]).groupby(known["athlete_id"])
+    verified = pd.to_datetime(overrides.set_index("athlete_id")["date_of_birth"])
+
+    conflicting = dates.nunique().loc[lambda n: n > 1].index.difference(verified.index)
+    if len(conflicting):
+        raise ValueError(
+            f"Conflicting date_of_birth across player_core files for athlete_id(s) "
+            f"{list(conflicting)}; verify and add to {DOB_OVERRIDES_PATH.name}"
+        )
+    return verified.combine_first(dates.first())
+
+
+def add_age(df, birth_dates, box):
+    """Add age in decimal years on the season's first regular-season game date."""
+    opening_day = pd.to_datetime(box["game_date"]).groupby(box["season"]).min()
+    # reindex (not map) so the column stays datetime-typed when a birth date is missing.
+    born = birth_dates.reindex(df["athlete_id"]).set_axis(df.index)
+    df = df.copy()
+    df["age_at_season_start"] = (df["season"].map(opening_day) - born).dt.days / 365.25
+    return df
