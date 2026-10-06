@@ -142,3 +142,44 @@ def add_rates(df):
     shooting_possessions = 2 * (df["field_goals_attempted"] + 0.44 * df["free_throws_attempted"])
     df["ts_pct"] = df["points"] / shooting_possessions.where(shooting_possessions > 0)
     return df
+
+
+def add_team_shares(df, box):
+    """Add share of team minutes and share of team games (docs/decisions.md 2026-10-06).
+
+    Denominator for a one-team player is the team's whole season. For a player with
+    more than one team it is, per stint, only that team's games from her first to
+    last box row of the stint — any row counts, including did-not-play, because a
+    row means she was on the roster.
+    """
+    key = ["season", "athlete_id"]
+    rows = box.assign(game_date=pd.to_datetime(box["game_date"]))
+
+    team_games = rows.groupby(["season", "team_id", "game_id"], as_index=False).agg(
+        game_date=("game_date", "first"), team_minutes=("minutes", "sum")
+    )
+
+    # A stint is a run of consecutive rows with the same team, so a player who
+    # returns to a former team gets two windows rather than one spanning both.
+    rows = rows.sort_values(key + ["game_date", "game_id"])
+    new_stint = rows["team_id"] != rows.groupby(key)["team_id"].shift()
+    rows["stint"] = new_stint.groupby([rows["season"], rows["athlete_id"]]).cumsum()
+    stints = rows.groupby(key + ["stint", "team_id"], as_index=False).agg(
+        first_date=("game_date", "min"), last_date=("game_date", "max")
+    )
+    stints["whole_season"] = stints.groupby(key)["team_id"].transform("nunique") == 1
+
+    windowed = stints.merge(team_games, on=["season", "team_id"])
+    in_window = windowed["whole_season"] | windowed["game_date"].between(
+        windowed["first_date"], windowed["last_date"]
+    )
+    available = (
+        windowed[in_window]
+        .groupby(key, as_index=False)
+        .agg(team_minutes=("team_minutes", "sum"), team_games=("game_id", "nunique"))
+    )
+
+    df = df.merge(available, on=key, how="left", validate="one_to_one")
+    df["team_minutes_share"] = df["minutes"] / df["team_minutes"]
+    df["team_games_share"] = df["games_played"] / df["team_games"]
+    return df.drop(columns=["team_minutes", "team_games"])
