@@ -7,15 +7,18 @@ docs/decisions.md — change the decision log first, then this file.
 Run: python pipeline/build.py
 """
 
+import ssl
 from pathlib import Path
-from urllib.request import urlretrieve
+from urllib.request import urlopen
 
+import certifi
 import pandas as pd
 
 SEASONS = range(2015, 2027)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = REPO_ROOT / "data" / "raw"
+OUTPUT_PATH = REPO_ROOT / "data" / "clean" / "player_seasons.parquet"
 # Birth dates verified by hand where player_core contradicts itself across seasons.
 DOB_OVERRIDES_PATH = Path(__file__).resolve().parent / "dob_overrides.csv"
 
@@ -40,6 +43,15 @@ ALL_STAR_CONFERENCE_NAMES = {"EAST", "WEST"}
 # against the league's 32.
 CUP_CHAMPIONSHIP_OVERRIDES = {401353913}
 
+# A player on the floor every minute has exactly 0.2 of her team's player-minutes.
+# The tolerance covers ESPN's whole-number minutes not always summing to 200 a game.
+MAX_TEAM_MINUTES_SHARE = 0.2
+SHARE_ROUNDING_TOLERANCE = 0.005
+
+# A missing birth date is acceptable below this many season minutes; at or above
+# it the date has to be looked up (docs/decisions.md 2026-10-06).
+AGE_REQUIRED_MINUTES = 200
+
 # Every box-score input to Game Score, summed per player-season.
 COMPONENTS = [
     "points",
@@ -60,11 +72,15 @@ COMPONENTS = [
 def download_raw(seasons=SEASONS, raw_dir=RAW_DIR):
     """Fetch each season's parquet files into data/raw/, skipping ones already there."""
     raw_dir.mkdir(parents=True, exist_ok=True)
+    # certifi's CA bundle, because python.org's macOS Python ships without one
+    # and fails certificate checks out of the box.
+    context = ssl.create_default_context(cafile=certifi.where())
     for stem, tag in DATASETS.items():
         for season in seasons:
             target = raw_dir / f"{stem}_{season}.parquet"
             if not target.exists():
-                urlretrieve(f"{RELEASE_BASE}/{tag}/{target.name}", target)
+                with urlopen(f"{RELEASE_BASE}/{tag}/{target.name}", context=context) as response:
+                    target.write_bytes(response.read())
 
 
 def load_dataset(stem, seasons=SEASONS, raw_dir=RAW_DIR):
@@ -217,3 +233,64 @@ def add_age(df, birth_dates, box):
     df = df.copy()
     df["age_at_season_start"] = (df["season"].map(opening_day) - born).dt.days / 365.25
     return df
+
+
+def validate(df, box):
+    """Stop the build if the output breaks an invariant the decisions rely on."""
+    if df.duplicated(["season", "athlete_id"]).any():
+        raise ValueError("Expected one row per player-season; found duplicates")
+
+    counting = ["games_played", "minutes"] + COMPONENTS
+    if df[counting].isna().any().any():
+        raise ValueError("Null in a counting column")
+
+    # Every real team plays many games; a one-game team is an All-Star roster
+    # that got past the name and schedule-note filters.
+    games_per_team = box.groupby(["season", "team_display_name"])["game_id"].nunique()
+    one_game_teams = games_per_team[games_per_team < 2]
+    if len(one_game_teams):
+        raise ValueError(f"Teams with a single game (All-Star leak?): {list(one_game_teams.index)}")
+
+    over = df[df["team_minutes_share"] > MAX_TEAM_MINUTES_SHARE + SHARE_ROUNDING_TOLERANCE]
+    if len(over):
+        raise ValueError(
+            f"team_minutes_share above {MAX_TEAM_MINUTES_SHARE}: "
+            f"{over[['season', 'player_name', 'team_minutes_share']].to_dict('records')}"
+        )
+
+    no_age = df[df["age_at_season_start"].isna() & (df["minutes"] >= AGE_REQUIRED_MINUTES)]
+    if len(no_age):
+        raise ValueError(
+            f"Missing age for player-seasons with {AGE_REQUIRED_MINUTES}+ minutes; look up "
+            f"and add to {DOB_OVERRIDES_PATH.name}: {no_age[['season', 'player_name']].to_dict('records')}"
+        )
+
+
+def build_player_seasons(box, schedules, core, dob_overrides):
+    """Raw frames in, validated player-season table out."""
+    regular = filter_regular_season(box, excluded_game_ids(box, schedules))
+    df = aggregate_player_seasons(regular)
+    df = add_rates(df)
+    df = add_team_shares(df, regular)
+    df = add_age(df, resolve_birth_dates(core, dob_overrides), regular)
+    validate(df, regular)
+    return df
+
+
+def main():
+    download_raw()
+    df = build_player_seasons(
+        box=load_dataset("player_box"),
+        schedules=load_dataset("wnba_schedule"),
+        core=load_dataset("player_core"),
+        dob_overrides=pd.read_csv(DOB_OVERRIDES_PATH),
+    )
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(OUTPUT_PATH, index=False)
+
+    print(f"Wrote {len(df)} player-seasons to {OUTPUT_PATH.relative_to(REPO_ROOT)}")
+    print(df.groupby("season").size().rename("player_seasons").to_string())
+
+
+if __name__ == "__main__":
+    main()

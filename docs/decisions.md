@@ -90,11 +90,11 @@ The entries below were approved by Chloe on 2026-10-06, before the Milestone 1 p
 
 **Status:** Approved (Chloe, 2026-10-06). **Extends** the 2026-10-01 All-Star decision above, which was only checked against 2025–2026.
 
-The `^TEAM ` pattern misses two All-Star Games in the 2015–2026 range: in 2015 (`game_id 400765572`) and 2017 (`400968106`) the rosters are named `EAST` and `WEST`. The schedule's All-Star note can't replace the name pattern either — it is missing for the 2023 game (`401558893`, `Team Stewart`/`Team Wilson`). No single signal covers all nine All-Star Games (there was none in 2016 or 2020).
+The `^TEAM ` pattern misses two All-Star Games in the 2015–2026 range: in 2015 (`game_id 400765572`) and 2017 (`400968106`) the rosters are named `EAST` and `WEST`. The schedule's All-Star note can't replace the name pattern either — it is missing for the 2023 game (`401558893`, `Team Stewart`/`Team Wilson`). No single signal covers all ten All-Star Games (there was none in 2016 or 2020).
 
 **How:** exclude a game if any of these is true: a team's `team_display_name` matches `^TEAM ` case-insensitively (2018–2024 use mixed case, e.g. `Team Delle Donne`); a team is named `EAST` or `WEST`; or `schedules.notes_headline` contains "All-Star" (case-insensitive). The exclusion is by `game_id`, so both rosters go together.
 
-**Safety net:** the pipeline fails if, after filtering, any team has only one regular-season game in a season. That structural check on its own catches all nine All-Star Games, so a future naming change can't slip through silently.
+**Safety net:** the pipeline fails if, after filtering, any team has only one regular-season game in a season. That structural check on its own catches all ten All-Star Games, so a future naming change can't slip through silently.
 
 **Alternative considered:** use the one-game-team rule as the filter itself. Rejected as the primary rule because it says nothing about *why* a game is excluded; kept as the check that the named rules worked.
 
