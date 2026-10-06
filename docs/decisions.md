@@ -162,9 +162,9 @@ All three verified values happen to match the 2026 file, but the pipeline does n
 - **One 2016 game is missing from `player_box`:** Seattle Storm vs. Connecticut Sun, 2016-05-28 (`game_id 400864463`, `STATUS_FINAL` in the schedule). Players on those two rosters will be one game short of official 2016 totals. No fix without a second source.
 - **Minutes are whole numbers per game.** Season minutes can differ from Basketball-Reference by a few minutes, so the acceptance spot-check allows a small tolerance on minutes and Game Score per 40; counting stats must match exactly.
 
-## 2026-10-06 — Acceptance spot-check passes against WNBA.com; Basketball-Reference differences are reported, not fatal
+## 2026-10-06 — Source of truth for acceptance is WNBA.com game logs; Basketball-Reference differences are informational
 
-**Status:** **Proposed — needs Chloe's call.** Found while running the acceptance check; implemented this way so the PR shows the evidence, but not approved.
+**Status:** Approved (Chloe, PR #3 review, 2026-10-06).
 
 The spot-check ran nine player-seasons against Basketball-Reference season totals. Games and points matched for all nine, and every counting stat matched exactly for the five 2024–2026 lines (Collier 2025, Morrow 2026, Sykes 2025, Wilson 2024, Clark 2024). Four older or low-minutes lines differed:
 
@@ -177,13 +177,30 @@ The spot-check ran nine player-seasons against Basketball-Reference season total
 
 **Cause:** the two sources disagree, not the pipeline. For those same four lines the pipeline matches the league's own game logs (stats.wnba.com, via sportsdataverse `wnba_stats_player_game_logs`) exactly on every counting stat. Ogunbowale's 2020 differences trace to individual games (e.g. 2020-07-26: 2 assists in both ESPN and WNBA.com, 3 on Basketball-Reference). Colson's minutes gap is rounding: ESPN and WNBA.com store whole minutes per game, Basketball-Reference sums seconds, and across 28 appearances of under five minutes that adds up to 4.
 
-**Wider check (not part of the committed spot-check):** summing WNBA.com game logs for every player in 2015, 2020, 2021, 2023, and 2025 and matching to the pipeline by name gave 776 matched player-seasons, of which 767 agree exactly on games and every counting stat, and none differ by more than one minute. The nine that differ are small (a turnover, a steal, one field-goal attempt) except three games-played differences of one game — Kalana Greene 2015, Han Xu 2023, Destanni Henderson 2023 — which are **not yet explained**.
+**How:** `pipeline/spot_check_reference.csv` holds both sources' lines with URLs. `python -m pipeline.spot_check` fails only on a mismatch against WNBA.com; Basketball-Reference mismatches are printed every run as information. Minutes and Game Score per 40 are allowed 1% against either source; everything else must be exact. Morrow 2026 has a Basketball-Reference line only — the WNBA.com 2026 game log upstream stops for her at 2026-07-22 (18 of her 27 games), so it can't be used for her.
 
-**How (as implemented):** `pipeline/spot_check_reference.csv` holds both sources' lines with URLs. `python -m pipeline.spot_check` fails only on a mismatch against WNBA.com; Basketball-Reference mismatches are printed every run. Minutes and Game Score per 40 are allowed 1% against either source; everything else must be exact. Morrow 2026 has a Basketball-Reference line only — the WNBA.com 2026 game log upstream stops for her at 2026-07-22 (18 of her 27 games), so it can't be used for her.
+**Alternatives considered:** require Basketball-Reference to match too (would mean sourcing older seasons from somewhere other than ESPN box scores, to agree with a secondary source over the league's own numbers); or switch the pipeline's box-score source to WNBA.com game logs (they match ESPN almost everywhere, but the 2026 gap above is unexplained). Neither taken.
 
-**Alternatives for Chloe:** (a) accept this as is; (b) require Basketball-Reference to match too, which means sourcing older seasons from somewhere other than ESPN box scores; (c) switch the pipeline's box-score source to WNBA.com game logs — they match ESPN almost everywhere, but the 2026 gap above would need explaining first.
+## 2026-10-06 — Minimum minutes: 200 in a season
 
-## 2026-10-06 — Flagged, not acted on
+**Status:** Approved (Chloe, PR #3 review, 2026-10-06). This is the "minimum minutes threshold to avoid tiny samples" that CLAUDE.md's Method (v1) section says to decide and document here.
 
-- **Frida Eldebrink 2016** shows an age of 18.4 from `player_core`; that birth date looks wrong (she played professionally in Europe well before 2016). She played 44 minutes, below the 200-minute lookup line, so it was left as is.
-- **Li Yueru is split across two `athlete_id`s**: `4422426` for 2022 (80 minutes, no birth date) and `4336633` for 2024–2026. The pipeline keys on `athlete_id`, so she appears as two different players. Only this one case was noticed; nobody has checked how many other players are split this way, and it matters for any season-over-season comparison.
+A player-season needs at least 200 regular-season minutes (after the All-Star and Cup Championship exclusions) to count in the analysis. 1,513 of the 1,987 player-seasons in 2015–2026 meet it — between 105 (2020, a 22-game season) and 166 (2026) per season.
+
+**How:** `data/clean/player_seasons.parquet` keeps every player-season regardless of minutes; the threshold is applied by whatever reads it, so the cut is visible and can be revisited without rebuilding. The pipeline uses the same line in one place: a player-season at or above it must have an age (`AGE_REQUIRED_MINUTES` in `pipeline/build.py`).
+
+**Alternative considered:** none was evaluated against the data — Chloe set the value. For reference, a 100-minute line would keep 1,683 player-seasons and a 400-minute line 1,192. Whether a 200-minute line suits the 22-game 2020 season as well as a 44-game one has not been looked at.
+
+## 2026-10-06 — Known discrepancies (logged, not fixed)
+
+- **Three one-game differences in games played vs. WNBA.com.** A wider comparison (not part of the committed spot-check) summed WNBA.com game logs for every player in 2015, 2020, 2021, 2023, and 2025 and matched them to the pipeline by name: 776 matched player-seasons, 767 exact on games and every counting stat, none more than one minute apart. Six of the nine that differ are a single turnover, steal, or field-goal attempt. The other three differ by one game played — Kalana Greene 2015 (pipeline 12 / WNBA.com 13), Han Xu 2023 (9 / 8), Destanni Henderson 2023 (16 / 15) — with points equal in each case. Cause not established.
+- **Frida Eldebrink's birth date is wrong upstream.** `player_core` gives her an age of 18.4 at the start of 2016; she played professionally in Europe well before then. Her 2016 season is 44 minutes, so the 200-minute minimum excludes it and the bad age never reaches the analysis. Not corrected.
+- **One 2016 game is missing from `player_box`** and **minutes are whole numbers per game** — see "Known data gaps" above.
+
+## 2026-10-06 — Open item: players split across more than one `athlete_id`
+
+**Status:** Open. To be handled on `fix/player-id-merges` after PR #3 merges.
+
+Li Yueru appears under two ESPN `athlete_id`s: `4422426` for 2022 (80 minutes, no birth date) and `4336633` for 2024–2026. The pipeline keys on `athlete_id`, so she is two different players in the output, and any before/after comparison across the split would miss her. This is the only case noticed so far; how many others exist is unknown.
+
+**Plan (Chloe, 2026-10-06):** find every player split across `athlete_id`s — same normalized name and birth date, or same name in non-overlapping seasons — build a documented merge map, and report the candidate list to Chloe before applying it.
