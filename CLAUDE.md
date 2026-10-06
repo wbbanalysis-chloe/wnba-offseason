@@ -45,4 +45,6 @@ The end product is a live web app where anyone can pick a player (or a group of 
 
 ## Commands
 - Pipeline: `python pipeline/build.py`
+- Pipeline acceptance check (after a build): `python -m pipeline.spot_check`
+- Pipeline tests: `pytest`
 - App: `npm run dev` (http://localhost:3000)
