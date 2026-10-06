@@ -16,10 +16,10 @@ The end product is a live web app where anyone can pick a player (or a group of 
 - **Verify before claiming.** Check outputs against the source data (row counts, spot checks on known players) before calling a step done.
 
 ## Stack
-- **Data pipeline:** Python 3 (pandas). Scripts live in `pipeline/`. Raw data in `data/raw/` (git-ignored if large), cleaned output as JSON/CSV in `data/clean/`.
+- **Data pipeline:** Python 3 (pandas). Scripts live in `pipeline/`. Raw data in `data/raw/` (git-ignored). The pipeline writes parquet to `data/clean/`; a later step exports JSON from it for the web app.
 - **Web app:** Next.js (App Router) + TypeScript + Tailwind CSS. Charts with Recharts.
 - **Deploy:** Vercel, connected to the wbbanalysis-chloe GitHub account.
-- No database for v1 — the app reads the cleaned JSON files.
+- No database for v1 — the app reads JSON files exported from the pipeline's parquet output.
 
 ## Data sources
 - **WNBA box scores and player stats:** sportsdataverse `wehoop-wnba-data` (https://github.com/sportsdataverse/wehoop-wnba-data). Check that the most recent season is present before relying on it; there's an open issue about updates.
@@ -38,7 +38,7 @@ The end product is a live web app where anyone can pick a player (or a group of 
 - Before any push, confirm the active GitHub account is wbbanalysis-chloe (`gh auth status`).
 
 ## Milestones
-1. **Data:** pipeline pulls WNBA player season stats, joins offseason assignments, outputs `data/clean/player_seasons.json`.
+1. **Data:** pipeline pulls WNBA player season stats, joins offseason assignments, outputs `data/clean/player_seasons.parquet` (JSON export for the app is a later step).
 2. **App v1:** Next.js page with player search and a before/after chart; league-level comparison view.
 3. **Deploy:** live on Vercel with a link in the README.
 4. **README:** question, data, method, findings, limitations, screenshots, live link.

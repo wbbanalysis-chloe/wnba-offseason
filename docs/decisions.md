@@ -83,3 +83,81 @@ Per the data audit (§7): the Championship Game is tagged `season_type == 2` lik
 **Replacement:** once the pipeline exists, spot-check its output against official season totals (WNBA.com or Basketball-Reference) for 5–10 players, covering a mix of roles/teams/minutes levels, as a pipeline acceptance step before trusting the output — the same method just used to verify the Commissioner's Cup exclusion above (Napheesa Collier's 2025 line matched exactly once the Championship and All-Star games were excluded). This becomes a required acceptance check for the pipeline build milestone, not an optional nicety.
 
 **Alternative considered:** keep using `player_season_stats` as a cross-check but only for players/seasons where its `gamesPlayed` looks plausible for a single season. Rejected — a "plausible-looking" career total (e.g. a rookie or a player returning from injury, where a low career game count coincidentally looks like a season total) is indistinguishable from a real season total without already knowing the answer, so this wouldn't actually be a reliable filter.
+
+The entries below were approved by Chloe on 2026-10-06, before the Milestone 1 pipeline build (`feat/pipeline-player-seasons`). They came out of checking the 2015–2026 `player_box`, `schedules`, and `player_core` parquet files against the filters approved above.
+
+## 2026-10-06 — All-Star exclusion widened: name pattern OR `EAST`/`WEST` OR schedule note
+
+**Status:** Approved (Chloe, 2026-10-06). **Extends** the 2026-10-01 All-Star decision above, which was only checked against 2025–2026.
+
+The `^TEAM ` pattern misses two All-Star Games in the 2015–2026 range: in 2015 (`game_id 400765572`) and 2017 (`400968106`) the rosters are named `EAST` and `WEST`. The schedule's All-Star note can't replace the name pattern either — it is missing for the 2023 game (`401558893`, `Team Stewart`/`Team Wilson`). No single signal covers all nine All-Star Games (there was none in 2016 or 2020).
+
+**How:** exclude a game if any of these is true: a team's `team_display_name` matches `^TEAM ` case-insensitively (2018–2024 use mixed case, e.g. `Team Delle Donne`); a team is named `EAST` or `WEST`; or `schedules.notes_headline` contains "All-Star" (case-insensitive). The exclusion is by `game_id`, so both rosters go together.
+
+**Safety net:** the pipeline fails if, after filtering, any team has only one regular-season game in a season. That structural check on its own catches all nine All-Star Games, so a future naming change can't slip through silently.
+
+**Alternative considered:** use the one-game-team rule as the filter itself. Rejected as the primary rule because it says nothing about *why* a game is excluded; kept as the check that the named rules worked.
+
+## 2026-10-06 — 2021 Commissioner's Cup final excluded by explicit `game_id` override
+
+**Status:** Approved (Chloe, 2026-10-06). **Extends** the 2026-10-01 Commissioner's Cup decision above.
+
+The 2022–2026 finals carry `notes_headline == "WNBA Commissioner's Cup Championship"`. The inaugural 2021 final does not: `game_id 401353913` (Seattle Storm vs. Connecticut Sun, 2021-08-12, `neutral_site == True`) carries the plain group-play note `"WNBA Commissioner's Cup"`. Evidence that it is the extra game: Seattle and Connecticut each show 33 `season_type == 2` games in 2021 while the other ten teams show 32, the same finalists-plus-one pattern as later seasons, and the schedule lists 61 Cup-noted games (60 group games + this one).
+
+**How:** headline match for the Championship, plus a hardcoded override for `401353913` with this entry as its justification.
+
+**Alternative considered:** infer it from `neutral_site == True` plus the Cup note. Rejected — an inference from one example is no safer than naming the one game, and it is less obvious to a reader.
+
+## 2026-10-06 — A game counts as played when `did_not_play` is false and `minutes` is not null
+
+**Status:** Approved (Chloe, 2026-10-06).
+
+Across 2015–2026 regular-season rows: 157 appearances have `minutes == 0` because ESPN rounds minutes to whole numbers, and some carry real stats (up to 2 points) — these count as games played, matching how official game counts treat a brief appearance. 85 rows are not marked `did_not_play` but have null `minutes`, `active == False`, and no nonzero stat — these are inactive-roster rows and do not count.
+
+**Alternative considered:** require `minutes > 0`. Rejected — it would drop real appearances and undercount games against official totals.
+
+## 2026-10-06 — Team shares for traded players use an on-roster window
+
+**Status:** Approved (Chloe, 2026-10-06). Applies to both share of team minutes and share of games played.
+
+- **One team all season:** denominator is that team's full regular season (all its games; team minutes = sum of all its players' minutes), as in the data audit.
+- **More than one team (145 player-seasons, 10 with three or more):** the season is split into stints, a stint being a run of consecutive box-score rows with the same team in date order. Each stint's denominator covers only that team's games from her first to her last box row of the stint, did-not-play and inactive rows included, since they show she was on the roster. Stint denominators are summed.
+
+Share of team minutes = player minutes ÷ team player-minutes in the window, so a player on the floor for every minute scores 0.2. The pipeline fails if any player-season exceeds 0.2 beyond a small rounding tolerance (minutes are whole numbers per game).
+
+**Known limits:** a single-team player signed late or waived early is still measured against the full season; a traded player's window can't see games before her first box row with a new team.
+
+**Alternative considered:** each team's full-season minutes for every player. Simpler, but it understates every traded player's share.
+
+## 2026-10-06 — Age is decimal years on the season's first regular-season game date
+
+**Status:** Approved (Chloe, 2026-10-06). Closes open item 9 in `docs/data-audit.md`.
+
+Age = (date of the season's first regular-season game − `player_core.date_of_birth`) ÷ 365.25 days. `player_core.age` is not used (frozen at file build time).
+
+**Conflicting birth dates** — three players have two different `date_of_birth` values across `player_core` season files. Each was verified on Basketball-Reference on 2026-10-06 and the verified value is recorded with its source in `pipeline/dob_overrides.csv`:
+
+| Player (`athlete_id`) | `player_core` values | Verified | Source |
+|---|---|---|---|
+| Myisha Hines-Allen (3142055) | 1996-05-30 (2018–2025 files), 1995-05-30 (2026) | 1995-05-30 | https://www.basketball-reference.com/wnba/players/h/hinesmy01w.html |
+| Maddy Westbeld (4433424) | 2002-10-15 (2025), 2002-02-10 (2026) | 2002-02-10 | https://www.basketball-reference.com/wnba/players/w/westbma01w.html |
+| Aziaha James (4433807) | 2005-02-22 (2025), 2002-11-19 (2026) | 2002-11-19 | https://www.basketball-reference.com/wnba/players/j/jamesaz01w.html |
+
+All three verified values happen to match the 2026 file, but the pipeline does not rely on "most recent file wins": a conflict with no override stops the build.
+
+**Missing birth dates** — four player-seasons have no `date_of_birth` in any season's file. Per Chloe, look up only those at or above 200 minutes; all four are below it, so age stays null: Makayla Epps 2017 (64 min), Aleah Goodman 2021 (3), Raina Perez 2022 (2), Li Yueru 2022 (80). The pipeline fails if a player-season with 200+ minutes ever has a null age.
+
+**Alternative considered:** take the most recent `player_core` file's value for conflicts. Rejected by Chloe — verify against an outside source and record it.
+
+## 2026-10-06 — Pipeline output is parquet; JSON for the web app is a later export step
+
+**Status:** Approved (Chloe, 2026-10-06).
+
+`pipeline/build.py` writes `data/clean/player_seasons.parquet` (typed columns, list-valued `teams`). A later step will export JSON for the Next.js app. CLAUDE.md updated to match.
+
+**Alternative considered:** write JSON directly, as CLAUDE.md originally said. Rejected — parquet keeps types for analysis; the app's JSON shape should be decided when the app exists.
+
+## 2026-10-06 — Known data gaps carried into the pipeline (no decision needed)
+
+- **One 2016 game is missing from `player_box`:** Seattle Storm vs. Connecticut Sun, 2016-05-28 (`game_id 400864463`, `STATUS_FINAL` in the schedule). Players on those two rosters will be one game short of official 2016 totals. No fix without a second source.
+- **Minutes are whole numbers per game.** Season minutes can differ from Basketball-Reference by a few minutes, so the acceptance spot-check allows a small tolerance on minutes and Game Score per 40; counting stats must match exactly.
