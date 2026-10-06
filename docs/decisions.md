@@ -185,11 +185,13 @@ The spot-check ran nine player-seasons against Basketball-Reference season total
 
 **Status:** Approved (Chloe, PR #3 review, 2026-10-06). This is the "minimum minutes threshold to avoid tiny samples" that CLAUDE.md's Method (v1) section says to decide and document here.
 
-A player-season needs at least 200 regular-season minutes (after the All-Star and Cup Championship exclusions) to count in the analysis. 1,513 of the 1,987 player-seasons in 2015–2026 meet it — between 105 (2020, a 22-game season) and 166 (2026) per season.
+A player-season needs at least 200 regular-season minutes (after the All-Star and Cup Championship exclusions) to count in the analysis. **Why 200:** it is roughly five full games of minutes, so a single game doesn't dominate a player's rate. 1,513 of the 1,987 player-seasons in 2015–2026 meet it — between 105 (2020, a 22-game season) and 166 (2026) per season.
 
 **How:** `data/clean/player_seasons.parquet` keeps every player-season regardless of minutes; the threshold is applied by whatever reads it, so the cut is visible and can be revisited without rebuilding. The pipeline uses the same line in one place: a player-season at or above it must have an age (`AGE_REQUIRED_MINUTES` in `pipeline/build.py`).
 
-**Alternative considered:** none was evaluated against the data — Chloe set the value. For reference, a 100-minute line would keep 1,683 player-seasons and a 400-minute line 1,192. Whether a 200-minute line suits the 22-game 2020 season as well as a 44-game one has not been looked at.
+**Alternatives considered:** 100 minutes (would keep 1,683 player-seasons) and 400 minutes (1,192). Neither is rejected outright: 200 is the primary threshold, and when the analysis is built the main results will be rerun at 100 and 400 as a sensitivity check.
+
+**2020 caveat:** whether a 200-minute line suits the 22-game 2020 season as well as a 44-game one has not been looked at. 2020 was a 22-game bubble season with many opt-outs; the analysis stage will include a robustness check excluding 2020.
 
 ## 2026-10-06 — Known discrepancies (logged, not fixed)
 
