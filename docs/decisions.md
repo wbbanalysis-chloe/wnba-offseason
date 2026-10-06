@@ -78,6 +78,8 @@ Per the data audit (§7): the Championship Game is tagged `season_type == 2` lik
 
 **Status:** Approved (Chloe, PR #1 review round 3, 2026-10-01). **Supersedes part of** the "Build per-game and per-40 stats from `player_box`" decision above, which had proposed keeping `player_season_stats` as a cross-check against our own rollups.
 
+**Upstream issue:** reported as [sportsdataverse/wehoop-wnba-data#29](https://github.com/sportsdataverse/wehoop-wnba-data/issues/29) (open as of 2026-10-06).
+
 **Reason for the reversal:** the round-2 finding that `player_season_stats` holds career totals, not season totals, for most veteran players (62% of 2025's 170 players show a physically-impossible single-season `gamesPlayed`) means it can't serve as a reliable cross-check — for most players, "cross-checking" against it would mean comparing our correct single-season numbers against its career numbers, which would look like our pipeline is wrong when it isn't.
 
 **Replacement:** once the pipeline exists, spot-check its output against official season totals (WNBA.com or Basketball-Reference) for 5–10 players, covering a mix of roles/teams/minutes levels, as a pipeline acceptance step before trusting the output — the same method just used to verify the Commissioner's Cup exclusion above (Napheesa Collier's 2025 line matched exactly once the Championship and All-Star games were excluded). This becomes a required acceptance check for the pipeline build milestone, not an optional nicety.
