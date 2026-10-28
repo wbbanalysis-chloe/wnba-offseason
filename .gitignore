@@ -1,0 +1,6 @@
+# Raw upstream data is re-downloadable; never commit it
+data/raw/
+
+.venv/
+__pycache__/
+.pytest_cache/
